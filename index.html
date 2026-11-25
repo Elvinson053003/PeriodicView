@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Net Worth Periodic Table</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:Helvetica,Arial,sans-serif;overflow:hidden}
+
+  #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#fff;color:#333;z-index:10}
+  .card{padding:60px 80px;border:1px solid #eee;border-radius:8px;text-align:center;box-shadow:0 2px 8px #0001}
+  .card h2{font-weight:400;margin:0 0 12px}.card p{font-size:12px;margin:0 0 36px}
+  #gbtn{background:#4285f4;color:#fff;border:0;border-radius:4px;padding:8px 18px 8px 8px;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:12px}
+  #gbtn span{background:#fff;color:#4285f4;font-weight:bold;width:28px;height:28px;border-radius:3px;display:flex;align-items:center;justify-content:center}
+  #err{color:#c00;font-size:12px;margin-top:16px;max-width:320px}
+
+  #container{position:absolute;inset:0}
+  .tile{width:120px;height:160px;box-sizing:border-box;border:2px solid;border-radius:4px;padding:6px;text-align:center;cursor:default;font-size:10px}
+  .tile .top{display:flex;justify-content:space-between}
+  .tile img{width:90px;height:90px;object-fit:cover;margin:6px 0 4px}
+  .tile .name{font-weight:bold;font-size:11px}.tile .int{opacity:.8;margin-top:2px}
+  .red{border-color:#ef3022;background:rgba(239,48,34,.25);box-shadow:0 0 12px rgba(239,48,34,.6)}
+  .orange{border-color:#fdca35;background:rgba(253,202,53,.25);box-shadow:0 0 12px rgba(253,202,53,.6)}
+  .green{border-color:#3a9f48;background:rgba(58,159,72,.25);box-shadow:0 0 12px rgba(58,159,72,.6)}
+  #menu{position:absolute;bottom:20px;width:100%;text-align:center}
+  #menu button{background:#0008;color:#7fffd4;border:1px solid #7fffd4;padding:8px 14px;margin:0 3px;cursor:pointer}
+  #menu button:hover{background:#7fffd433}
+  #legend{position:absolute;top:12px;right:16px;font-size:12px}
+  #legend i{display:inline-block;width:10px;height:10px;margin:0 4px 0 10px}
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+
+<div id="login"><div class="card">
+  <h2>Welcome Back</h2>
+  <p>Please sign in with your Google account to continue</p>
+  <button id="gbtn"><span>G</span>Sign in with Google</button>
+  <div id="err"></div>
+</div></div>
+
+<div id="container"></div>
+<div id="legend"><i style="background:#ef3022"></i>&lt; $100K<i style="background:#fdca35"></i>$100K–$200K<i style="background:#3a9f48"></i>&gt; $200K</div>
+<div id="menu">
+  <button data-l="table">TABLE</button><button data-l="sphere">SPHERE</button>
+  <button data-l="helix">HELIX</button><button data-l="grid">GRID</button>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import * as TWEEN from 'three/addons/libs/tween.module.js';
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
+import { CSS3DRenderer, CSS3DObject } from 'three/addons/renderers/CSS3DRenderer.js';
+
+const CLIENT_ID = '939579720420-rg59jjj7i6og0gq9daqob5tkqb3hh9sg.apps.googleusercontent.com';
+const SHEET_ID  = '1COpRo35DUf0KNkvejFb7uSYX7jkJpcpQB56fmqmT6j0';
+const RANGE     = 'Data Template!A2:F201';  
+
+const $ = s => document.querySelector(s);
+let camera, scene, renderer, controls;
+const objects = [], targets = { table: [], sphere: [], helix: [], grid: [] };
+
+$('#gbtn').onclick = () => {
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+    callback: async res => {
+      if (res.error) { $('#err').textContent = res.error; return; }
+      try { await loadSheet(res.access_token); }
+      catch (e) { $('#err').textContent = e.message; }
+    }
+  });
+  client.requestAccessToken();
+};
+
+async function loadSheet(token) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(RANGE)}`;
+  const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) throw new Error('Read Sheet failed: ' + r.status + ' (Check permissions / Sheet ID)');
+  const rows = (await r.json()).values || [];
+  $('#login').style.display = 'none';
+  init(rows);
+  animate();
+}
+
+function init(rows) {
+  camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 1, 10000);
+  camera.position.z = 3000;
+  scene = new THREE.Scene();
+
+  rows.forEach(([name, photo, age, country, interest, worth]) => {
+    const money = parseFloat(String(worth).replace(/[$,\s]/g, '')) || 0;
+    const cls = money < 100000 ? 'red' : money <= 200000 ? 'orange' : 'green';
+    const el = document.createElement('div');
+    el.className = 'tile ' + cls;
+    el.innerHTML = `<div class="top"><span>${country}</span><span>${age}</span></div>
+      <img src="${photo}" alt=""><div class="name">${name}</div><div class="int">${interest}</div>`;
+    const o = new CSS3DObject(el);
+    o.position.set(Math.random() * 4000 - 2000, Math.random() * 4000 - 2000, Math.random() * 4000 - 2000);
+    scene.add(o); objects.push(o);
+  });
+  const N = objects.length, dummy = new THREE.Object3D(), v = new THREE.Vector3();
+
+  for (let i = 0; i < N; i++) {
+    const t = new THREE.Object3D();
+    t.position.set((i % 20) * 140 - 1330, -Math.floor(i / 20) * 180 + 810, 0);
+    targets.table.push(t);
+  }
+  // SPHERE
+  for (let i = 0; i < N; i++) {
+    const phi = Math.acos(-1 + 2 * i / N), theta = Math.sqrt(N * Math.PI) * phi;
+    const t = new THREE.Object3D();
+    t.position.setFromSphericalCoords(900, phi, theta);
+    v.copy(t.position).multiplyScalar(2); t.lookAt(v);
+    targets.sphere.push(t);
+  }
+  // HELIX
+  const helixSpacing = 20;
+  for (let i = 0; i < N; i++) {
+    const k = Math.floor(i / 2), strand = i % 2;
+    const theta = k * 0.35 + strand * Math.PI;
+    const t = new THREE.Object3D();
+    t.position.set(900 * Math.sin(theta), -k * helixSpacing + (Math.ceil(N / 2) - 1) * helixSpacing / 2, 900 * Math.cos(theta));
+    v.set(t.position.x * 2, t.position.y, t.position.z * 2); t.lookAt(v);
+    targets.helix.push(t);
+  }
+  // GRID：x=10, y=4, z=5  (10*4*5=200)
+  for (let i = 0; i < N; i++) {
+    const t = new THREE.Object3D();
+    t.position.set((i % 10) * 200 - 900,
+                   -(Math.floor(i / 10) % 4) * 250 + 375,
+                   Math.floor(i / 40) * 500 - 1000);
+    targets.grid.push(t);
+  }
+
+  renderer = new CSS3DRenderer();
+  renderer.setSize(innerWidth, innerHeight);
+  $('#container').appendChild(renderer.domElement);
+  controls = new TrackballControls(camera, renderer.domElement);
+  controls.minDistance = 500; controls.maxDistance = 6000;
+  controls.addEventListener('change', render);
+
+  document.querySelectorAll('#menu button').forEach(b =>
+    b.onclick = () => transform(targets[b.dataset.l], 2000));
+  transform(targets.table, 2000);
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight); render();
+  });
+}
+
+function transform(list, ms) {
+  TWEEN.removeAll();
+  objects.forEach((o, i) => {
+    const t = list[i];
+    new TWEEN.Tween(o.position).to({ x: t.position.x, y: t.position.y, z: t.position.z }, Math.random() * ms + ms)
+      .easing(TWEEN.Easing.Exponential.InOut).start();
+    new TWEEN.Tween(o.rotation).to({ x: t.rotation.x, y: t.rotation.y, z: t.rotation.z }, Math.random() * ms + ms)
+      .easing(TWEEN.Easing.Exponential.InOut).start();
+  });
+  new TWEEN.Tween({}).to({}, ms * 2).onUpdate(render).start();
+}
+function animate() { requestAnimationFrame(animate); TWEEN.update(); controls.update(); }
+function render() { renderer.render(scene, camera); }
+</script>
+</body>
+</html>
